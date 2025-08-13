@@ -1,42 +1,47 @@
 import math
 import os
 import util
-from util import first_occurrence
 
 
-class Command:
-    def __init__(self, shortcut, optional_args, command):
+class NewCommand:
+    def __init__(self, shortcut, num_args, optional_arg, command_def):
         self.shortcut = shortcut
-        self.optional_args = optional_args
-        self.command = command
+        self.num_args = num_args
+        self.optional_arg = optional_arg
+        self.command_def = command_def
 
 
-def parse_newcommand(text):
-    shortcut, rest = util.get_next_token(text)
+def parse_new_command(text):
+    shortcut, rest = util.get_shortcut(text)
     num_args, rest2 = util.get_num_args(rest)
     optional_arg, rest3 = util.get_optional_arg(rest2)
     command, _ = util.extract_bracketed(rest3)
-    # print(f"shortcut: {shortcut}, numargs: {num_args}, optional_arg: {optional_arg}, command: {command} ")
-    return Command(shortcut=shortcut, optional_args=[optional_arg], command=command)
+    return NewCommand(shortcut=shortcut, num_args=num_args, optional_arg=optional_arg, command_def=command)
 
 
 def parse_commands(text):
     commands = []
     while True:
-        idx1 = first_occurrence(text, '\\newcommand') + 11
-        idx2 = first_occurrence(text, '\\renewcommand') + 13
+        idx1 = util.first_occurrence(text, '\\newcommand') + 11
+        idx2 = util.first_occurrence(text, '\\renewcommand') + 13
         # todo - def, NewDocumentCommand, RenewDocumentCommand
         idx = min(idx1, idx2)
         if idx == math.inf:
             return commands
         text = text[idx:]
-        commands.append(parse_newcommand(text))
+        commands.append(parse_new_command(text))
 
 
-def handle_env(env, text_content):
+def handle_env(env, text_content, commands):
     name, text, rest = util.text_in_env(env, text_content)
-    print(f"{env.capitalize()}: {text}")
+    translated_text = util.translate(text,commands)
+    # translated_text = text
+    # match env:
+    #     case 'definition':
+    #
+    print(f"{env.capitalize()}: {translated_text}")
     print("-------------------------")
+
     return rest
 
 
@@ -52,7 +57,6 @@ def main():
     output_path = input_path[:-4] + ".txt"
     with open(input_path, "r") as f:
         text_content = f.read()
-        # lines = text_content.split("\n")
         commands = parse_commands(text_content)
         begin_text = '\\begin{document}'
         end_text = '\\end{document}'
@@ -60,12 +64,13 @@ def main():
         idx2 = text_content.index(end_text)
         text_content = text_content[idx1:idx2]  # text inside document
         env_types = ['definition', 'lemma', 'proposition', 'corollary', 'theorem']
+        cards = []
         while True:
             indices = [util.first_occurrence(text_content, '\\begin{' + x + '}') for x in env_types]
             idx = min(indices)
             if idx == math.inf:
                 break
-            text_content = handle_env(env_types[indices.index(idx)], text_content)
+            text_content = handle_env(env_types[indices.index(idx)], text_content, commands)
 
 
 if __name__ == "__main__":

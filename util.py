@@ -1,7 +1,6 @@
 import math
 
-
-def get_next_token(s):
+def get_shortcut(s):
     s = s.lstrip()
     if s.startswith('{'):
         return extract_bracketed(s)
@@ -30,7 +29,7 @@ def get_optional_arg(s):
     return None, s
 
 
-def extract_bracketed(s, bracket_left='{', bracket_right='}', return_unbracketed = True):
+def extract_bracketed(s, bracket_left='{', bracket_right='}', return_unbracketed=True):
     """
     Returns the stripped version of the content inside the first bracket group encountered and the remaining text outside the group.
 
@@ -42,7 +41,7 @@ def extract_bracketed(s, bracket_left='{', bracket_right='}', return_unbracketed
             token = s.split()[0]
             return token, s[len(token):]
         else:
-            return None,s
+            return None, s
     num_brackets = 1
     curr_idx = idx1 + 1
     while curr_idx < len(s) and num_brackets > 0:
@@ -71,11 +70,88 @@ def text_in_env(env_name, text_content):
     else:
         name = None
         rest = inside_text
+    rest = ' '.join(rest.split())  # convert all whitespaces to spaces
     return name, rest, text_content[end_idx + len(end_str):]
 
 
 def first_occurrence(text, substring):
     idx = text.find(substring)
+    return math.inf if idx == -1 else idx
+
+
+def replace_unescaped(old, new, text):
+    idx = text.find(old)
     if idx == -1:
-        return math.inf
-    return idx
+        return text
+    if idx == 0 or text[idx - 1] != '\\':
+        return text.replace(old, new)
+    return replace_unescaped(old, new, text[idx + len(old):])
+
+
+def translate(text, commands):
+    text = apply_commands(commands, text)
+    text = replace_dollar_signs(text)
+    return text
+
+
+def apply_commands(commands, text):
+    for command in commands:
+        shortcut = command.shortcut
+        num_args = command.num_args
+        command_def = command.command_def
+        while True:
+            text_copy = text
+            idx = text_copy.find(shortcut)
+            if idx == -1:
+                break
+            args = []
+            prefix = text[:idx]
+            text_copy = text_copy[idx + len(shortcut):].lstrip()
+            if text_copy[0] == '[':
+                optional_arg, rest = extract_bracketed(text_copy, '[', ']')
+                args.append(optional_arg)
+                n = num_args - 1
+                text_copy = rest
+            else:
+                n = num_args
+            for i in range(n):
+                text_copy = text_copy.lstrip()
+                c = text_copy[0]
+                if c == '{':
+                    arg, rest = extract_bracketed(text_copy)
+                    args.append(arg)
+                    text_copy = rest
+                elif c == '\\':
+                    arg = text_copy.split()[0]
+                    args.append(arg)
+                    text_copy = text_copy[len(arg):]
+                else:
+                    args.append(c)
+                    text_copy = text_copy[1:]
+            actual_text = command_def
+            for i in range(num_args):
+                actual_text = replace_unescaped(f'#{i + 1}', args[i], actual_text)
+            text = prefix + actual_text + text_copy
+    return text
+
+
+def replace_dollar_signs(text):
+    balanced = True
+    while "$$" in text:
+        delimiter = "\\[" if balanced else "\\]"
+        text = text.replace("$$", delimiter, 1)
+        balanced = not balanced
+    if not balanced:
+        return ValueError("$$ not balanced")
+    replaced_str = ""
+    while "$" in text:
+        idx = text.find("$")
+        if idx == 0 or text[idx] != '\\':
+            delimiter = '\\(' if balanced else '\\)'
+            replaced_str += text[:idx] + delimiter
+            text = text[idx + 1:]
+            balanced = not balanced
+        else:
+            replaced_str = text[:idx + 1]
+            text = text[idx + 1:]
+    return replaced_str + text
