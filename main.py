@@ -225,6 +225,9 @@ def apply_commands(commands, text):
 
 
 def replace_item_with_li(text):
+    """
+    Replace the first instance of [backslash]item with <li>...</li> tags.
+    """
     item_text = '\\item'
     idx1 = text.find(item_text)
     if idx1 == -1:
@@ -243,6 +246,9 @@ def replace_item_with_li(text):
 
 
 def translate_list_with_env(text, env, list_tag):
+    """
+    Convert env environments into HTML lists with list_tag as the outer tag.
+    """
     begin = '\\begin{' + env + '}'
     end = '\\end{' + env + '}'
     while begin in text:
@@ -259,6 +265,9 @@ def translate_list_with_env(text, env, list_tag):
 
 
 def translate_lists(text):
+    """
+    Convert enumerate and itemize environments into HTML ordered and unordered lists that are Anki-parsable.
+    """
     text = translate_list_with_env(text, 'enumerate', 'ol')
     text = translate_list_with_env(text, 'itemize', 'ul')
     return text
