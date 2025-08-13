@@ -34,7 +34,7 @@ def parse_commands(text):
 
 def handle_env(env, text_content, commands):
     name, text, rest = util.text_in_env(env, text_content)
-    translated_text = util.translate(text,commands)
+    translated_text = util.translate(text, commands)
     # translated_text = text
     # match env:
     #     case 'definition':
@@ -63,7 +63,7 @@ def main():
         idx1 = text_content.index(begin_text) + len(begin_text)
         idx2 = text_content.index(end_text)
         text_content = text_content[idx1:idx2]  # text inside document
-        env_types = ['definition', 'lemma', 'proposition', 'corollary', 'theorem']
+        env_types = ['definition', 'lemma', 'proposition', 'corollary', 'theorem', 'proof']
         cards = []
         while True:
             indices = [util.first_occurrence(text_content, '\\begin{' + x + '}') for x in env_types]

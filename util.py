@@ -98,6 +98,7 @@ def apply_commands(commands, text):
     for command in commands:
         shortcut = command.shortcut
         num_args = command.num_args
+        optional_arg = command.optional_arg
         command_def = command.command_def
         while True:
             text_copy = text
@@ -112,6 +113,9 @@ def apply_commands(commands, text):
                 args.append(optional_arg)
                 n = num_args - 1
                 text_copy = rest
+            elif optional_arg is not None:
+                args.append(optional_arg)
+                n = num_args - 1
             else:
                 n = num_args
             for i in range(n):
