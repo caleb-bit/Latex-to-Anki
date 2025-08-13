@@ -71,7 +71,7 @@ def get_shortcut(s):
             return s, ""
         return s[:idx], s[idx:]
     else:
-        return ValueError()
+        raise ValueError()
 
 
 def get_num_args(s):
@@ -222,14 +222,54 @@ def apply_commands(commands, text):
         new_text = apply_command(command, new_text)
     return new_text
 
+def replace_item_with_li(text):
+    item_text = '\\item'
+    idx1 = text.find(item_text)
+    if idx1 == -1:
+        return text
+    pref = text[:idx1]
+    middle = text[idx1+len(item_text):]
+    idx2 = middle.find(item_text)
+    end = ""
+    if idx2 != -1:
+        end = middle[idx2:]
+        middle = middle[:idx2]
+    if middle == '':
+        raise ValueError("middle is empty")
+    replaced_text = f'{pref}<li>{middle}</li>{end}'
+    return replaced_text
+
+
+def translate_list_with_env(text, env, list_tag):
+    begin = '\\begin{' + env + '}'
+    end = '\\end{' + env + '}'
+    while begin in text:
+        idx1 = text.find(begin)
+        idx2 = text.find(end)
+        pref = text[:idx1]
+        inside = text[idx1 + len(begin):idx2]
+        post = text[idx2 + len(end):]
+        inside = f'<{list_tag}>{inside}</{list_tag}>'
+        while '\\item' in inside:
+            inside = replace_item_with_li(inside)
+        text = pref + inside + post
+    return text
+
+
+def translate_lists(text):
+    text = translate_list_with_env(text, 'enumerate', 'ol')
+    text = translate_list_with_env(text, 'itemize', 'ul')
+    return text
+
 
 def translate(text, commands):
     """
     Uses commands to substitute shortcuts in text with regular latex.
     """
-    text = apply_commands(commands, text)
-    text = replace_dollar_signs(text)
-    return text
+    text1 = apply_commands(commands, text)
+    text2 = replace_dollar_signs(text1)
+    text3 = translate_lists(text2)
+    return text3
 
 
 def parse_env(env, text_content, commands):
@@ -263,7 +303,7 @@ def replace_dollar_signs(text):
         text = text.replace("$$", delimiter, 1)
         balanced = not balanced
     if not balanced:
-        return ValueError("$$ not balanced")
+        raise ValueError("$$ not balanced")
     replaced_str = ""
     while "$" in text:
         idx = text.find("$")
@@ -308,6 +348,9 @@ class Card:
         self.front_text = front_text
         self.back_text = back_text
 
+def anki_bold(text):
+    return f'<b>{text}</b>'
+
 
 def generate_definition_cards(definition):
     """
@@ -344,7 +387,7 @@ def generate_definition_cards(definition):
             term = post[0]
             post = post[1:]
         terms.append(term)
-        pref += f'**{term}**'
+        pref += anki_bold(term)
     full_def = pref + post
     for term in terms:
         cards.append(Card(False, f"Define {term}.", full_def))
@@ -352,7 +395,7 @@ def generate_definition_cards(definition):
     for i in range(len(terms)):
         term = terms[i]
         cloze_text = f'c{i + 1}::{term}'
-        clozed = clozed.replace(f'**{term}**', '{{' + cloze_text + '}}')
+        clozed = clozed.replace(anki_bold(term), '{{' + cloze_text + '}}')
     cards.append(Card(True, clozed, ""))
     return cards
 
@@ -386,7 +429,7 @@ def generate_cards(statements, env_types):
                 else:
                     idx += 1
         else:
-            return ValueError()
+            raise ValueError()
     return cards
 
 
