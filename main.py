@@ -62,8 +62,14 @@ def get_shortcut(s):
     if s.startswith('{'):
         return extract_bracketed(s)
     elif s.startswith('\\'):
-        shortcut = s.split()[0]
-        return shortcut, s[len(shortcut):]
+        idx1 = first_occurrence(s, '{')
+        idx2 = first_occurrence(s[1:], '\\') + 1
+        idx3 = first_occurrence(s, '[')
+        idx4 = first_occurrence(s, ' ')
+        idx = min(idx1, idx2, idx3, idx4)
+        if idx == math.inf:
+            return s, ""
+        return s[:idx], s[idx:]
     else:
         return ValueError()
 
@@ -80,7 +86,7 @@ def get_num_args(s):
     return 0, s
 
 
-def get_optional_arg(s):
+def get_optional_arg_name(s):
     """
     If there is an optional argument inside [], return it and the remaining text.
     Otherwise, return None, s.
@@ -97,7 +103,7 @@ def parse_new_command(text):
     """
     shortcut, rest = get_shortcut(text)
     num_args, rest2 = get_num_args(rest)
-    optional_arg, rest3 = get_optional_arg(rest2)
+    optional_arg, rest3 = get_optional_arg_name(rest2)
     command, _ = extract_bracketed(rest3)
     return NewCommand(shortcut=shortcut, num_args=num_args, optional_arg=optional_arg, command_def=command)
 
@@ -116,9 +122,6 @@ def parse_commands(text):
             return commands
         text = text[idx:]
         commands.append(parse_new_command(text))
-
-
-env_types = ['definition', 'lemma', 'proposition', 'corollary', 'theorem', 'proof']
 
 
 class NewCommand:
@@ -147,52 +150,77 @@ def text_in_env(env_name, text_content):
     return name, rest, text_content[end_idx + len(end_str):]
 
 
+def get_optional_arg(optional_arg, curr_text):
+    """
+    Return the value entered for the optional argument in curr_text and the rest of the text.
+    If there is none, return None, curr_text.
+    """
+    arg = None
+    if curr_text[0] == '[':
+        arg, rest = extract_bracketed(curr_text, '[', ']')
+        curr_text = rest
+    elif optional_arg is not None:
+        arg = optional_arg
+    return arg, curr_text
+
+
+def get_arg(curr_text):
+    """
+    Return the following argument to a command shortcut in curr_text and the remaining text.
+    """
+    curr_text = curr_text.lstrip()
+    c = curr_text[0]
+    if c == '{':
+        arg, rest = extract_bracketed(curr_text)
+    elif c == '\\':
+        arg = curr_text.split()[0]
+        rest = curr_text[len(arg):]
+    else:
+        arg = c
+        rest = curr_text[1:]
+    return arg, rest
+
+
+def apply_command(command, text):
+    """
+    Use command to replace all instances of the command shortcut with regular latex.
+    """
+    shortcut = command.shortcut
+    num_args = command.num_args
+    optional_arg = command.optional_arg
+    command_def = command.command_def
+    while True:
+        curr_text = text
+        idx = curr_text.find(shortcut)
+        if idx == -1:
+            break
+        args = []
+        prefix = text[:idx]
+        curr_text = curr_text[idx + len(shortcut):].lstrip()
+        opt_arg, curr_text = get_optional_arg(optional_arg, curr_text)
+        if opt_arg is None:
+            n = num_args
+        else:
+            args.append(opt_arg)
+            n = num_args - 1
+        for i in range(n):
+            arg, curr_text = get_arg(curr_text)
+            args.append(arg)
+        actual_text = command_def
+        for i in range(num_args):
+            actual_text = replace_unescaped(f'#{i + 1}', args[i], actual_text)
+        text = prefix + actual_text + curr_text
+    return text
+
+
 def apply_commands(commands, text):
     """
     Convert all shortcuts with regular latex in text using the provided commands.
     """
+    new_text = text
     for command in commands:
-        shortcut = command.shortcut
-        num_args = command.num_args
-        optional_arg = command.optional_arg
-        command_def = command.command_def
-        while True:
-            text_copy = text
-            idx = text_copy.find(shortcut)
-            if idx == -1:
-                break
-            args = []
-            prefix = text[:idx]
-            text_copy = text_copy[idx + len(shortcut):].lstrip()
-            if text_copy[0] == '[':
-                optional_arg, rest = extract_bracketed(text_copy, '[', ']')
-                args.append(optional_arg)
-                n = num_args - 1
-                text_copy = rest
-            elif optional_arg is not None:
-                args.append(optional_arg)
-                n = num_args - 1
-            else:
-                n = num_args
-            for i in range(n):
-                text_copy = text_copy.lstrip()
-                c = text_copy[0]
-                if c == '{':
-                    arg, rest = extract_bracketed(text_copy)
-                    args.append(arg)
-                    text_copy = rest
-                elif c == '\\':
-                    arg = text_copy.split()[0]
-                    args.append(arg)
-                    text_copy = text_copy[len(arg):]
-                else:
-                    args.append(c)
-                    text_copy = text_copy[1:]
-            actual_text = command_def
-            for i in range(num_args):
-                actual_text = replace_unescaped(f'#{i + 1}', args[i], actual_text)
-            text = prefix + actual_text + text_copy
-    return text
+        new_text = apply_command(command, new_text)
+    return new_text
 
 
 def translate(text, commands):
@@ -250,7 +278,7 @@ def replace_dollar_signs(text):
     return replaced_str + text
 
 
-def compile_statements(commands, remaining_text):
+def compile_statements(commands, remaining_text, env_types):
     """
     Return a list of all (environment, statement) pairs present in remaining_text using commands for translation.
     The environment must be in env_types.
@@ -296,13 +324,14 @@ def generate_definition_cards(definition):
     while tag in post:
         instance_idx = post.find(tag)
         new_pref = post[:instance_idx]
-        num_open_brackets += count_unescaped(new_pref, '\\(') + count_unescaped(new_pref, '\\[') - count_unescaped(
-            new_pref,
-            '\\)') - count_unescaped(new_pref, '\\]')
+        num_open_brackets += (count_unescaped(new_pref, '\\(')
+                              + count_unescaped(new_pref, '\\[')
+                              - count_unescaped(new_pref, '\\)')
+                              - count_unescaped(new_pref, '\\]'))
         pref += new_pref
         post = post[instance_idx + len(tag):].strip()
         if num_open_brackets != 0:
-            continue
+            continue  # inside math env
         if post[0] == '{':
             term, rest = extract_bracketed(post)
             post = rest
@@ -336,9 +365,10 @@ def generate_theorem_cards(theorem, proof):
     return [Card(False, front, proof)]
 
 
-def generate_cards(statements):
+def generate_cards(statements, env_types):
     """
     :param statements: list of tuples (env type, content)
+    :param env_types: list of environment types
     :return: list of strings, each representing an Anki card
     """
     idx = 0
@@ -360,6 +390,28 @@ def generate_cards(statements):
     return cards
 
 
+def split_cards(cards):
+    """
+    Given cards, a list of Card objects, return (basic_cards, cloze_cards).
+    basic_cards and cloze_cards contain the basic and cloze cards from cards in text form, respectively.
+    """
+    basic_cards = []
+    cloze_cards = []
+    for card in cards:
+        card_text = f'\"{card.front_text}\"|\"{card.back_text}\"'
+        if card.is_cloze:
+            cloze_cards.append(card_text)
+        else:
+            basic_cards.append(card_text)
+    return basic_cards, cloze_cards
+
+
+def write_cards(path, cards):
+    with open(path, "w") as f:
+        for card in cards:
+            f.write(f'{card}\n')
+
+
 def main():
     """
     Given the input path name.tex, output to name_basic.txt and name_cloze.txt the basic and cloze cards generated by the input path.
@@ -367,24 +419,20 @@ def main():
     input_path = get_input_path()
     basic_card_path = input_path[:-4] + "_basic.txt"
     cloze_card_path = input_path[:-4] + "_cloze.txt"
+    env_types = ['definition', 'lemma', 'proposition', 'corollary', 'theorem', 'proof']
     with open(input_path, "r") as f:
         file_text = f.read()
-        commands = parse_commands(file_text)
         begin_text = '\\begin{document}'
         end_text = '\\end{document}'
-        idx1 = file_text.index(begin_text) + len(begin_text)
+        idx1 = file_text.index(begin_text)
         idx2 = file_text.index(end_text)
-        remaining_text = file_text[idx1:idx2]  # text inside document
-        statements = compile_statements(commands, remaining_text)
-        cards = generate_cards(statements)
-        basic_cards = [f'\"{card.front_text}\"|\"{card.back_text}\"' for card in cards if not card.is_cloze]
-        cloze_cards = [f'\"{card.front_text}\"|\"{card.back_text}\"' for card in cards if card.is_cloze]
-    with open(basic_card_path, "w") as f:
-        for card in basic_cards:
-            f.write(f'{card}\n')
-    with open(cloze_card_path, "w") as f:
-        for card in cloze_cards:
-            f.write(f'{card}\n')
+        commands = parse_commands(file_text[:idx1])
+        remaining_text = file_text[idx1 + len(begin_text):idx2]  # text inside document
+        statements = compile_statements(commands, remaining_text, env_types)
+        cards = generate_cards(statements, env_types)
+        basic_cards, cloze_cards = split_cards(cards)
+    write_cards(basic_card_path, basic_cards)
+    write_cards(cloze_card_path, cloze_cards)
 
 
 if __name__ == "__main__":
