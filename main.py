@@ -135,6 +135,7 @@ class NewCommand:
 def text_in_env(env_name, text_content):
     """
     Finds the first instance of [env_name] environment and returns the name (if applicable), contained content, and the remainder of the text.
+    If there is no name, name=None is returned.
     """
     begin_str = "\\begin{" + env_name + "}"
     end_str = "\\end{" + env_name + "}"
@@ -222,13 +223,14 @@ def apply_commands(commands, text):
         new_text = apply_command(command, new_text)
     return new_text
 
+
 def replace_item_with_li(text):
     item_text = '\\item'
     idx1 = text.find(item_text)
     if idx1 == -1:
         return text
     pref = text[:idx1]
-    middle = text[idx1+len(item_text):]
+    middle = text[idx1 + len(item_text):]
     idx2 = middle.find(item_text)
     end = ""
     if idx2 != -1:
@@ -278,7 +280,7 @@ def parse_env(env, text_content, commands):
     """
     name, text, rest = text_in_env(env, text_content)
     translated_text = translate(text, commands)
-    return translated_text, rest
+    return name, translated_text, rest
 
 
 def replace_unescaped(old, new, text):
@@ -320,7 +322,7 @@ def replace_dollar_signs(text):
 
 def compile_statements(commands, remaining_text, env_types):
     """
-    Return a list of all (environment, statement) pairs present in remaining_text using commands for translation.
+    Return a list of all (environment, statement, name) tuples present in remaining_text using commands for translation.
     The environment must be in env_types.
     """
     statements = []
@@ -330,8 +332,8 @@ def compile_statements(commands, remaining_text, env_types):
         if idx == math.inf:
             break
         env = env_types[indices.index(idx)]
-        statement, remaining_text = parse_env(env, remaining_text, commands)
-        statements.append((env, statement))
+        name, statement, remaining_text = parse_env(env, remaining_text, commands)
+        statements.append((env, statement, name))
     return statements
 
 
@@ -347,6 +349,7 @@ class Card:
         self.is_cloze = is_cloze
         self.front_text = front_text
         self.back_text = back_text
+
 
 def anki_bold(text):
     return f'<b>{text}</b>'
@@ -400,12 +403,19 @@ def generate_definition_cards(definition):
     return cards
 
 
-def generate_theorem_cards(theorem, proof):
+def generate_theorem_cards(theorem, proof, name):
     """
-    Returns a list with a single basic card that requests the proof of the given theorem.
+    Returns a list with a basic card that requests the proof of the given theorem and a basic card that requests the theorem given its name (if applicable).
     """
-    front = f"Prove the following: {theorem}"
-    return [Card(False, front, proof)]
+    cards = []
+    front1 = f"Prove the following: {theorem}"
+    back1 = proof
+    cards.append(Card(False, front1, back1))
+    if not name is None:
+        front2 = f"State the {name}."
+        back2 = theorem
+        cards.append(Card(False, front2, back2))
+    return cards
 
 
 def generate_cards(statements, env_types):
@@ -424,7 +434,7 @@ def generate_cards(statements, env_types):
         elif env in env_types:
             if env != 'proof':
                 if idx + 1 < len(statements) and statements[idx + 1][0] == 'proof':
-                    cards += generate_theorem_cards(statements[idx][1], statements[idx + 1][1])
+                    cards += generate_theorem_cards(statements[idx][1], statements[idx + 1][1], statements[idx][2])
                     idx += 2
                 else:
                     idx += 1

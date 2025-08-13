@@ -26,19 +26,21 @@ Lemmas, corollaries, propositions, and theorems are treated in the same manner. 
 environments:
 
 ```
-\begin{theorem}
+\begin{theorem}[theorem name]
     ...
 \end{theorem}
 \begin{proof}
     ...
 \end{proof}
 ```
+Note that `theorem name` is optional.
 
 For now, three types of cards are generated:
 
 1. Cloze cards where all terms of a definition are clozed. Any content inside `\textbf` is considered a term.
 2. Basic cards with the term on the front and the full definition on the back.
 3. Basic cards with the theorem on the front and the proof on the back.
+4. Basic cards with the theorem name on the front and the theorem on the back.
 
 Given a file `name.tex`, two files are generated: `name_basic.txt` and `name_clozed.txt`, containing the basic and clozed cards respectively in `.txt` format.
 To import these into Anki follow these steps:
