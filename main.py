@@ -1,5 +1,6 @@
 import math
 import os
+import re
 
 
 def get_input_path():
@@ -116,12 +117,18 @@ def parse_commands(text):
     while True:
         idx1 = first_occurrence(text, '\\newcommand') + 11
         idx2 = first_occurrence(text, '\\renewcommand') + 13
+        idx3 = first_occurrence(text, '\\DeclareMathOperator') + 20
         # todo - def, NewDocumentCommand, RenewDocumentCommand
-        idx = min(idx1, idx2)
+        idx = min(idx1, idx2, idx3)
         if idx == math.inf:
             return commands
         text = text[idx:]
         commands.append(parse_new_command(text))
+        # For DeclareMathOperator, the command provided should be surrounded by operatorname.
+        if idx == idx3:
+            command = commands[-1]
+            command.command_def = '\\operatorname{' + command.command_def + '}'
+            commands[-1] = command
 
 
 class NewCommand:
@@ -187,31 +194,37 @@ def apply_command(command, text):
     Use command to replace all instances of the command shortcut with regular latex.
     """
     shortcut = command.shortcut
-    num_args = command.num_args
-    optional_arg = command.optional_arg
-    command_def = command.command_def
+    processed = ""
+    curr = text
     while True:
-        curr_text = text
-        idx = curr_text.find(shortcut)
+        idx = curr.find(shortcut)
         if idx == -1:
             break
         args = []
-        prefix = text[:idx]
-        curr_text = curr_text[idx + len(shortcut):].lstrip()
-        opt_arg, curr_text = get_optional_arg(optional_arg, curr_text)
-        if opt_arg is None:
-            n = num_args
-        else:
-            args.append(opt_arg)
-            n = num_args - 1
+        processed += curr[:idx]
+        curr = curr[idx:]
+        # Skip if
+        # 1. the shortcut is a substring of a different command being used, or
+        # 2. the backslash is escaped.
+        if curr[len(shortcut)].isalpha() or processed[-1] == '\\':
+            processed += curr[:len(shortcut)]
+            curr = curr[len(shortcut):]
+            continue
+        curr = curr[len(shortcut):].lstrip()
+        n = command.num_args
+        if not command.optional_arg is None:
+            opt_arg, curr = get_optional_arg(command.optional_arg, curr)
+            if not opt_arg is None:
+                args.append(opt_arg)
+                n -= 1
         for i in range(n):
-            arg, curr_text = get_arg(curr_text)
+            arg, curr = get_arg(curr)
             args.append(arg)
-        actual_text = command_def
-        for i in range(num_args):
-            actual_text = replace_unescaped(f'#{i + 1}', args[i], actual_text)
-        text = prefix + actual_text + curr_text
-    return text
+        args_replaced = command.command_def
+        for i in range(command.num_args):
+            args_replaced = replace_unescaped(f'#{i + 1}', args[i], args_replaced)
+        processed += args_replaced
+    return processed + curr
 
 
 def apply_commands(commands, text):
@@ -273,6 +286,15 @@ def translate_lists(text):
     return text
 
 
+def escape_quotes(text):
+    split = text.split('"')
+    return '""'.join(split)
+
+
+def replace_cloze_brackets(text):
+    return re.sub(r'([^\\])}}', r'\g<1>}}', text)  # the first bracket shouldn't be escaped
+
+
 def translate(text, commands):
     """
     Uses commands to substitute shortcuts in text with regular latex.
@@ -280,7 +302,9 @@ def translate(text, commands):
     text1 = apply_commands(commands, text)
     text2 = replace_dollar_signs(text1)
     text3 = translate_lists(text2)
-    return text3
+    text4 = escape_quotes(text3)
+    text5 = replace_cloze_brackets(text4)  # avoids cloze deletion conflicts
+    return text5
 
 
 def parse_env(env, text_content, commands):
@@ -416,16 +440,17 @@ def generate_theorem_cards(theorem, proof, name):
     """
     Returns a list with a basic card that requests the proof of the given theorem and a basic card that requests the theorem given its name (if applicable).
     """
-    cards = []
-    front1 = f"Prove the following: {theorem}"
-    back1 = proof
-    cards.append(Card(False, front1, back1))
-    if not name is None:
-        front2 = f"State the {name}."
-        back2 = theorem
-        cards.append(Card(False, front2, back2))
-    return cards
+    if name is None:
+        return [Card(False, f"Prove the following: {theorem}", proof)]
+    return [
+        Card(False, f"Prove the {name}: {theorem}", proof),
+        Card(False, f"State the {name}.", theorem)
+    ]
 
+def generate_lone_theorem_card(theorem, name):
+    if name is None:
+        return []
+    return [Card(False, f"State the {name}.",theorem)]
 
 def generate_cards(statements, env_types):
     """
@@ -435,7 +460,11 @@ def generate_cards(statements, env_types):
     """
     idx = 0
     cards = []
+    num = 0
     while idx < len(statements):
+        if len(cards) + 1 > num:
+            print(f"Generating card {num + 1}...")
+            num += 100
         env = statements[idx][0]
         if env == 'definition':
             cards += generate_definition_cards(statements[idx][1])
@@ -443,10 +472,16 @@ def generate_cards(statements, env_types):
         elif env in env_types:
             if env != 'proof':
                 if idx + 1 < len(statements) and statements[idx + 1][0] == 'proof':
+                    # theorem with a proof
                     cards += generate_theorem_cards(statements[idx][1], statements[idx + 1][1], statements[idx][2])
                     idx += 2
                 else:
+                    # theorem without a proof
+                    cards += generate_lone_theorem_card(statements[idx][1], statements[idx][2])
                     idx += 1
+            else:
+                # a misplaced proof
+                idx += 1
         else:
             raise ValueError()
     return cards
@@ -488,13 +523,17 @@ def main():
         end_text = '\\end{document}'
         idx1 = file_text.index(begin_text)
         idx2 = file_text.index(end_text)
+        print("Parsing commands...")
         commands = parse_commands(file_text[:idx1])
         remaining_text = file_text[idx1 + len(begin_text):idx2]  # text inside document
+        print("Compiling statements...")
         statements = compile_statements(commands, remaining_text, env_types)
         cards = generate_cards(statements, env_types)
         basic_cards, cloze_cards = split_cards(cards)
+    print("Writing cards...")
     write_cards(basic_card_path, basic_cards)
     write_cards(cloze_card_path, cloze_cards)
+    print("Done!")
 
 
 if __name__ == "__main__":
