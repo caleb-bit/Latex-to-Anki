@@ -144,7 +144,6 @@ def text_in_env(env_name, text_content):
     Finds the first instance of [env_name] environment and returns the name (if applicable), contained content, and the remainder of the text.
     If there is no name, name=None is returned.
     """
-    print(f"text_in_env called with env {env_name}")
     begin_str = "\\begin{" + env_name + "}"
     end_str = "\\end{" + env_name + "}"
     begin_idx = first_occurrence(text_content, begin_str) + len(begin_str)
@@ -152,13 +151,11 @@ def text_in_env(env_name, text_content):
     new_begin_idx = begin_idx
     # curr_str = text_content[begin_idx:end_idx].strip() # where we're checking if there is a \begin{env_name}
     while True:     
-        # print(f"curr_str: {curr_str[:50]}")
         new_begin_idx += first_occurrence(text_content[new_begin_idx:end_idx], begin_str) + len(begin_str)
         if new_begin_idx == math.inf:
             break
         end_idx += len(end_str) +  first_occurrence(text_content[end_idx + len(end_str):], end_str)
         print(end_idx)
-        # curr_str = text_content[(new_begin_idx  + len(begin_str)):end_idx].strip()
     inside_text = text_content[begin_idx:end_idx].strip()   
     if inside_text[0] == '[':
         name, rest = extract_bracketed(inside_text, '[', ']', False)
